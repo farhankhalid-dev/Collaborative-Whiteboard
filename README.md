@@ -19,7 +19,7 @@ A real-time collaborative whiteboard with just pencil, eraser, and cursor tracki
 1. **Download the project:**
    ```bash
    git clone https://github.com/farhankhalid-dev/Collaborative-Whiteboard
-   cd simple-lan-whiteboard
+   cd Collaborative-Whiteboard
    ```
 
 2. **Install dependencies:**

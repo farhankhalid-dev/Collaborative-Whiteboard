@@ -1,0 +1,23 @@
+{
+    "name": "simple-lan-whiteboard",
+    "version": "1.0.0",
+    "description": "Simple real-time collaborative whiteboard for LAN",
+    "main": "server.js",
+    "scripts": {
+      "start": "node server.js",
+      "dev": "node server.js"
+    },
+    "dependencies": {
+      "express": "^4.18.2",
+      "socket.io": "^4.7.2"
+    },
+    "keywords": [
+      "whiteboard",
+      "collaborative",
+      "real-time",
+      "LAN",
+      "socket.io"
+    ],
+    "author": "Farhan",
+    "license": "MIT"
+  }

@@ -1,0 +1,1124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple LAN Whiteboard</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background: #f0f0f0;
+            overflow: hidden;
+        }
+
+        #toolbar {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            z-index: 1000;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+            max-width: 600px;
+        }
+
+        .toolbar-row {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .tool-btn {
+            padding: 8px 12px;
+            border: 2px solid #ddd;
+            background: white;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+            position: relative;
+        }
+
+        .tool-btn:hover {
+            background: #f0f0f0;
+        }
+
+        .tool-btn.active {
+            background: #007bff;
+            color: white;
+            border-color: #007bff;
+        }
+
+        .color-palette {
+            display: flex;
+            gap: 5px;
+            align-items: center;
+        }
+
+        .color-btn {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            border: 2px solid #ddd;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .color-btn:hover {
+            transform: scale(1.1);
+        }
+
+        .color-btn.active {
+            border-color: #333;
+            border-width: 3px;
+        }
+
+        .size-control {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .size-slider {
+            width: 80px;
+        }
+
+        .size-display {
+            min-width: 30px;
+            text-align: center;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        #clear-btn {
+            background: #dc3545;
+            color: white;
+            border-color: #dc3545;
+        }
+
+        #clear-btn:hover {
+            background: #c82333;
+        }
+
+        #clear-btn.voted {
+            background: #28a745;
+            border-color: #28a745;
+        }
+
+        #clear-btn.voted:hover {
+            background: #218838;
+        }
+
+        .vote-indicator {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            background: #ff4444;
+            color: white;
+            border-radius: 12px;
+            padding: 4px 8px;
+            font-size: 11px;
+            font-weight: bold;
+            min-width: 24px;
+            text-align: center;
+            display: none;
+            box-shadow: 0 2px 6px rgba(255, 68, 68, 0.4);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                box-shadow: 0 2px 6px rgba(255, 68, 68, 0.4);
+                transform: scale(1);
+            }
+            50% {
+                box-shadow: 0 4px 12px rgba(255, 68, 68, 0.8);
+                transform: scale(1.05);
+            }
+            100% {
+                box-shadow: 0 2px 6px rgba(255, 68, 68, 0.4);
+                transform: scale(1);
+            }
+        }
+
+        .vote-popup {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: #ff4444;
+            color: white;
+            padding: 20px 30px;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            z-index: 2000;
+            display: none;
+            text-align: center;
+            font-size: 18px;
+            font-weight: bold;
+            animation: votePopIn 0.3s ease-out;
+        }
+
+        @keyframes votePopIn {
+            from {
+                opacity: 0;
+                transform: translate(-50%, -50%) scale(0.8);
+            }
+            to {
+                opacity: 1;
+                transform: translate(-50%, -50%) scale(1);
+            }
+        }
+
+        .vote-popup .vote-details {
+            font-size: 14px;
+            margin-top: 10px;
+            opacity: 0.9;
+        }
+
+        .vote-popup .vote-progress {
+            margin-top: 15px;
+            font-size: 24px;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #ffffff;
+            border-radius: 50%;
+            border-top-color: transparent;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        #username-input {
+            padding: 5px 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        #canvas {
+            display: block;
+            cursor: none;
+            background: white;
+        }
+
+        #custom-cursor {
+            position: fixed;
+            pointer-events: none;
+            z-index: 998;
+            border-radius: 50%;
+            border: 2px solid #333;
+            background: rgba(255, 255, 255, 0.3);
+            transform: translate(-50%, -50%);
+            display: none;
+        }
+
+        .cursor {
+            position: absolute;
+            pointer-events: none;
+            z-index: 999;
+            transform: translate(-50%, -50%);
+        }
+
+        .cursor-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #007bff;
+            border: 2px solid white;
+            box-shadow: 0 0 4px rgba(0,0,0,0.3);
+        }
+
+        .cursor-label {
+            background: #007bff;
+            color: white;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 11px;
+            white-space: nowrap;
+            margin-top: 5px;
+            text-align: center;
+        }
+
+        #connection-status {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+            z-index: 1001;
+        }
+
+        .connected {
+            background: #28a745;
+            color: white;
+        }
+
+        .disconnected {
+            background: #dc3545;
+            color: white;
+        }
+
+        .users-dropdown {
+            position: relative;
+            display: inline-block;
+        }
+
+        .users-text {
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 4px;
+            transition: background-color 0.2s;
+            user-select: none;
+        }
+
+        .users-text:hover {
+            background-color: #f0f0f0;
+        }
+
+        .users-list {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            min-width: 150px;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 1002;
+            display: none;
+        }
+
+        .users-list.show {
+            display: block;
+        }
+
+        .user-item {
+            padding: 8px 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border-bottom: 1px solid #eee;
+            transition: background-color 0.2s;
+        }
+
+        .user-item:last-child {
+            border-bottom: none;
+        }
+
+        .user-item:hover {
+            background-color: #f5f5f5;
+        }
+
+        .user-item.current-user {
+            background-color: #e3f2fd;
+            font-weight: bold;
+        }
+
+        .user-color-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            border: 1px solid #ccc;
+            flex-shrink: 0;
+        }
+
+        .user-name {
+            flex-grow: 1;
+            font-size: 12px;
+        }
+
+        .user-status {
+            font-size: 10px;
+            color: #666;
+            font-style: italic;
+        }
+
+        /* Mobile optimizations */
+        @media (max-width: 768px) {
+            #toolbar {
+                position: fixed;
+                top: 5px;
+                left: 5px;
+                right: 5px;
+                max-width: none;
+                font-size: 12px;
+                padding: 10px;
+            }
+            
+            .tool-btn {
+                padding: 6px 8px;
+                font-size: 12px;
+            }
+            
+            .color-btn {
+                width: 25px;
+                height: 25px;
+            }
+            
+            .size-slider {
+                width: 60px;
+            }
+            
+            #username-input {
+                width: 80px;
+                font-size: 12px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="connection-status" class="disconnected">Disconnected</div>
+    
+    <div id="toolbar">
+        <div class="toolbar-row">
+            <input type="text" id="username-input" placeholder="Enter username" maxlength="15">
+            <button class="tool-btn active" id="pencil-btn" data-tool="pencil">✏️ Pencil</button>
+            <button class="tool-btn" id="eraser-btn" data-tool="eraser">🧹 Eraser</button>
+            <button class="tool-btn" id="clear-btn">
+                🗑️ Clear All
+                <span class="vote-indicator" id="vote-indicator"></span>
+            </button>
+        </div>
+        
+        <div class="toolbar-row">
+            <span>Colors:</span>
+            <div class="color-palette">
+                <div class="color-btn active" data-color="#000000" style="background-color: #000000;" title="Black"></div>
+                <div class="color-btn" data-color="#ff0000" style="background-color: #ff0000;" title="Red"></div>
+                <div class="color-btn" data-color="#00ff00" style="background-color: #00ff00;" title="Green"></div>
+                <div class="color-btn" data-color="#0000ff" style="background-color: #0000ff;" title="Blue"></div>
+                <div class="color-btn" data-color="#ffff00" style="background-color: #ffff00;" title="Yellow"></div>
+                <div class="color-btn" data-color="#ff00ff" style="background-color: #ff00ff;" title="Magenta"></div>
+                <div class="color-btn" data-color="#00ffff" style="background-color: #00ffff;" title="Cyan"></div>
+                <div class="color-btn" data-color="#ffa500" style="background-color: #ffa500;" title="Orange"></div>
+                <div class="color-btn" data-color="#800080" style="background-color: #800080;" title="Purple"></div>
+                <div class="color-btn" data-color="#8b4513" style="background-color: #8b4513;" title="Brown"></div>
+            </div>
+        </div>
+        
+        <div class="toolbar-row">
+            <div class="size-control">
+                <span>Pencil:</span>
+                <input type="range" id="pencil-size" class="size-slider" min="1" max="20" value="3">
+                <span class="size-display" id="pencil-size-display">3px</span>
+            </div>
+            <div class="size-control">
+                <span>Eraser:</span>
+                <input type="range" id="eraser-size" class="size-slider" min="5" max="50" value="20">
+                <span class="size-display" id="eraser-size-display">20px</span>
+            </div>
+        </div>
+        
+        <div class="toolbar-row">
+            <div class="users-dropdown">
+                <span class="users-text" id="users-toggle">Users: <span id="user-count">1</span></span>
+                <div class="users-list" id="users-list">
+                    <!-- User list will be populated here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <canvas id="canvas"></canvas>
+    <div id="custom-cursor"></div>
+    
+    <div class="vote-popup" id="vote-popup">
+        <div>🗳️ Clear Canvas Vote</div>
+        <div class="vote-progress" id="vote-progress">1/3</div>
+        <div class="vote-details" id="vote-details">Someone wants to clear the canvas!</div>
+    </div>
+
+    <script>
+        class SimpleWhiteboard {
+            constructor() {
+                this.canvas = document.getElementById('canvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.socket = io();
+                this.customCursor = document.getElementById('custom-cursor');
+                
+                this.isDrawing = false;
+                this.currentTool = 'pencil';
+                this.currentColor = '#000000';
+                this.pencilSize = 3;
+                this.eraserSize = 20;
+                this.hasVotedToClear = false;
+                
+                // Simple tracking - no complex state
+                this.myLastX = 0;
+                this.myLastY = 0;
+                this.remoteUsers = new Map(); // Just store last positions
+                
+                this.users = new Map();
+                this.allUsers = new Map();
+                this.username = localStorage.getItem('whiteboard-username') || '';
+                
+                this.setupCanvas();
+                this.setupTools();
+                this.setupSocket();
+                this.setupEvents();
+                
+                // Load saved username
+                if (this.username) {
+                    document.getElementById('username-input').value = this.username;
+                }
+                
+                // Auto-join
+                this.joinRoom();
+            }
+
+            setupCanvas() {
+                this.resizeCanvas();
+                window.addEventListener('resize', () => this.resizeCanvas());
+                
+                // Set canvas drawing properties
+                this.ctx.lineCap = 'round';
+                this.ctx.lineJoin = 'round';
+            }
+
+            resizeCanvas() {
+                this.canvas.width = window.innerWidth;
+                this.canvas.height = window.innerHeight;
+            }
+
+            setupTools() {
+                // Tool buttons
+                document.querySelectorAll('.tool-btn[data-tool]').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        document.querySelector('.tool-btn.active').classList.remove('active');
+                        btn.classList.add('active');
+                        this.currentTool = btn.dataset.tool;
+                        this.updateCustomCursor();
+                    });
+                });
+
+                // Color palette
+                document.querySelectorAll('.color-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        document.querySelector('.color-btn.active').classList.remove('active');
+                        btn.classList.add('active');
+                        this.currentColor = btn.dataset.color;
+                        this.updateCustomCursor();
+                    });
+                });
+
+                // Size sliders
+                const pencilSlider = document.getElementById('pencil-size');
+                const eraserSlider = document.getElementById('eraser-size');
+                const pencilDisplay = document.getElementById('pencil-size-display');
+                const eraserDisplay = document.getElementById('eraser-size-display');
+
+                pencilSlider.addEventListener('input', (e) => {
+                    this.pencilSize = parseInt(e.target.value);
+                    pencilDisplay.textContent = this.pencilSize + 'px';
+                    if (this.currentTool === 'pencil') {
+                        this.updateCustomCursor();
+                    }
+                });
+
+                eraserSlider.addEventListener('input', (e) => {
+                    this.eraserSize = parseInt(e.target.value);
+                    eraserDisplay.textContent = this.eraserSize + 'px';
+                    if (this.currentTool === 'eraser') {
+                        this.updateCustomCursor();
+                    }
+                });
+
+                // Clear button with voting
+                document.getElementById('clear-btn').addEventListener('click', () => {
+                    this.socket.emit('vote-clear');
+                });
+
+                // Username input with saving
+                const usernameInput = document.getElementById('username-input');
+                usernameInput.addEventListener('change', () => {
+                    const newUsername = usernameInput.value.trim();
+                    if (newUsername && newUsername !== this.username) {
+                        this.username = newUsername;
+                        localStorage.setItem('whiteboard-username', this.username);
+                        
+                        if (this.socket.connected) {
+                            this.socket.emit('username-change', this.username);
+                        }
+                    }
+                });
+
+                usernameInput.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        usernameInput.blur();
+                    }
+                });
+
+                // Users dropdown toggle
+                document.getElementById('users-toggle').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.toggleUsersDropdown();
+                });
+
+                // Close dropdown when clicking outside
+                document.addEventListener('click', (e) => {
+                    const usersList = document.getElementById('users-list');
+                    const usersToggle = document.getElementById('users-toggle');
+                    
+                    if (!usersToggle.contains(e.target) && !usersList.contains(e.target)) {
+                        usersList.classList.remove('show');
+                    }
+                });
+            }
+
+            setupSocket() {
+                this.socket.on('connect', () => {
+                    document.getElementById('connection-status').textContent = 'Connected';
+                    document.getElementById('connection-status').className = 'connected';
+                });
+
+                this.socket.on('disconnect', () => {
+                    document.getElementById('connection-status').textContent = 'Disconnected';
+                    document.getElementById('connection-status').className = 'disconnected';
+                });
+
+                // Handle drawing - IMPROVED FOR CONCURRENT USERS
+                this.socket.on('drawing', (data) => {
+                    this.drawOnCanvas(data);
+                });
+
+                this.socket.on('drawing-history', (history) => {
+                    // Process all drawing history in order
+                    history.forEach(event => {
+                        this.drawOnCanvas(event);
+                    });
+                });
+
+                this.socket.on('cursor-update', (data) => {
+                    this.updateUserCursor(data);
+                });
+
+                this.socket.on('users-update', (users) => {
+                    users.forEach(user => {
+                        if (user.id !== this.socket.id) {
+                            this.users.set(user.id, user);
+                            this.allUsers.set(user.id, user);
+                            this.createCursorElement(user);
+                        }
+                    });
+                    this.updateUserCount();
+                    this.updateUsersDropdown();
+                });
+
+                this.socket.on('user-joined', (user) => {
+                    this.users.set(user.id, user);
+                    this.allUsers.set(user.id, user);
+                    this.createCursorElement(user);
+                    this.updateUserCount();
+                    this.updateUsersDropdown();
+                });
+
+                this.socket.on('user-left', (userId) => {
+                    this.removeCursorElement(userId);
+                    this.users.delete(userId);
+                    this.allUsers.delete(userId);
+                    this.updateUserCount();
+                    this.updateUsersDropdown();
+                });
+
+                this.socket.on('username-updated', (data) => {
+                    if (this.users.has(data.id)) {
+                        this.users.get(data.id).username = data.newUsername;
+                        this.updateCursorLabel(data.id, data.newUsername);
+                    }
+                    if (this.allUsers.has(data.id)) {
+                        this.allUsers.get(data.id).username = data.newUsername;
+                        this.updateUsersDropdown();
+                    }
+                });
+
+                this.socket.on('color-assigned', (color) => {
+                    this.currentColor = color;
+                    this.updateAssignedColor(color);
+                    this.updateCustomCursor();
+                    
+                    // Add current user to the list
+                    this.allUsers.set(this.socket.id, {
+                        id: this.socket.id,
+                        username: this.username,
+                        color: color,
+                        x: 0,
+                        y: 0
+                    });
+                    this.updateUsersDropdown();
+                });
+
+                this.socket.on('clear-vote-update', (voteData) => {
+                    this.updateClearVoteUI(voteData);
+                });
+
+                this.socket.on('clear-canvas-approved', () => {
+                    // Hide vote popup immediately
+                    document.getElementById('vote-popup').style.display = 'none';
+                    
+                    this.showClearLoading();
+                    setTimeout(() => {
+                        this.clearCanvas();
+                        this.hideClearLoading();
+                        this.resetVoteUI();
+                    }, 1000);
+                });
+            }
+
+            setupEvents() {
+                // Mouse events
+                this.canvas.addEventListener('mousedown', (e) => this.startDrawing(e));
+                this.canvas.addEventListener('mousemove', (e) => this.draw(e));
+                this.canvas.addEventListener('mouseup', () => this.stopDrawing());
+                this.canvas.addEventListener('mouseout', () => this.stopDrawing());
+
+                // Touch events for mobile - improved
+                this.canvas.addEventListener('touchstart', (e) => {
+                    e.preventDefault();
+                    const touch = e.touches[0];
+                    const mouseEvent = new MouseEvent('mousedown', {
+                        clientX: touch.clientX,
+                        clientY: touch.clientY
+                    });
+                    this.canvas.dispatchEvent(mouseEvent);
+                }, { passive: false });
+
+                this.canvas.addEventListener('touchmove', (e) => {
+                    e.preventDefault();
+                    const touch = e.touches[0];
+                    const mouseEvent = new MouseEvent('mousemove', {
+                        clientX: touch.clientX,
+                        clientY: touch.clientY
+                    });
+                    this.canvas.dispatchEvent(mouseEvent);
+                }, { passive: false });
+
+                this.canvas.addEventListener('touchend', (e) => {
+                    e.preventDefault();
+                    const mouseEvent = new MouseEvent('mouseup', {});
+                    this.canvas.dispatchEvent(mouseEvent);
+                }, { passive: false });
+
+                // Custom cursor tracking
+                this.canvas.addEventListener('mousemove', (e) => {
+                    this.updateCustomCursorPosition(e);
+                    
+                    if (this.socket.connected) {
+                        this.socket.emit('cursor-move', {
+                            x: e.clientX,
+                            y: e.clientY
+                        });
+                    }
+                });
+
+                this.canvas.addEventListener('mouseenter', () => {
+                    this.customCursor.style.display = 'block';
+                });
+
+                this.canvas.addEventListener('mouseleave', () => {
+                    this.customCursor.style.display = 'none';
+                });
+            }
+
+            joinRoom() {
+                if (!this.username) {
+                    this.username = `User${Math.floor(Math.random() * 1000)}`;
+                    document.getElementById('username-input').value = this.username;
+                    localStorage.setItem('whiteboard-username', this.username);
+                }
+                this.socket.emit('join', this.username);
+            }
+
+            startDrawing(e) {
+                this.isDrawing = true;
+                const rect = this.canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+
+                // Start my own drawing
+                this.myLastX = x;
+                this.myLastY = y;
+                
+                this.ctx.beginPath();
+                this.ctx.moveTo(x, y);
+
+                // Tell others I'm starting
+                this.socket.emit('drawing', {
+                    type: 'start',
+                    x: x,
+                    y: y,
+                    tool: this.currentTool,
+                    color: this.currentColor,
+                    lineWidth: this.currentTool === 'pencil' ? this.pencilSize : this.eraserSize
+                });
+            }
+
+            draw(e) {
+                if (!this.isDrawing) return;
+
+                const rect = this.canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+
+                // Draw my own line (locally)
+                this.drawMyLine(x, y);
+
+                // Tell others about my drawing
+                this.socket.emit('drawing', {
+                    type: 'draw',
+                    x: x,
+                    y: y,
+                    tool: this.currentTool,
+                    color: this.currentColor,
+                    lineWidth: this.currentTool === 'pencil' ? this.pencilSize : this.eraserSize
+                });
+                
+                // Update my position
+                this.myLastX = x;
+                this.myLastY = y;
+            }
+
+            stopDrawing() {
+                if (this.isDrawing) {
+                    this.isDrawing = false;
+                    this.ctx.beginPath();
+                    
+                    this.socket.emit('drawing', {
+                        type: 'stop'
+                    });
+                }
+            }
+
+            drawMyLine(x, y) {
+                // Draw my own line - simple and direct
+                if (this.currentTool === 'eraser') {
+                    this.ctx.globalCompositeOperation = 'destination-out';
+                    this.ctx.lineWidth = this.eraserSize;
+                } else {
+                    this.ctx.globalCompositeOperation = 'source-over';
+                    this.ctx.strokeStyle = this.currentColor;
+                    this.ctx.lineWidth = this.pencilSize;
+                }
+
+                this.ctx.lineTo(x, y);
+                this.ctx.stroke();
+                this.ctx.beginPath();
+                this.ctx.moveTo(x, y);
+            }
+
+            drawRemoteLine(userId, x, y, tool, color, lineWidth) {
+                // Get or create remote user state
+                if (!this.remoteUsers.has(userId)) {
+                    this.remoteUsers.set(userId, { lastX: x, lastY: y });
+                    return; // First point, nothing to draw yet
+                }
+                
+                const remoteUser = this.remoteUsers.get(userId);
+                
+                // Create a completely separate drawing operation
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = this.canvas.width;
+                tempCanvas.height = this.canvas.height;
+                const tempCtx = tempCanvas.getContext('2d');
+                
+                // Set up the temporary context
+                if (tool === 'eraser') {
+                    tempCtx.globalCompositeOperation = 'destination-out';
+                    tempCtx.lineWidth = lineWidth || 20;
+                } else {
+                    tempCtx.globalCompositeOperation = 'source-over';
+                    tempCtx.strokeStyle = color || '#000';
+                    tempCtx.lineWidth = lineWidth || 3;
+                }
+                
+                tempCtx.lineCap = 'round';
+                tempCtx.lineJoin = 'round';
+                
+                // Draw the line on temporary canvas
+                tempCtx.beginPath();
+                tempCtx.moveTo(remoteUser.lastX, remoteUser.lastY);
+                tempCtx.lineTo(x, y);
+                tempCtx.stroke();
+                
+                // Composite onto main canvas
+                if (tool === 'eraser') {
+                    this.ctx.globalCompositeOperation = 'destination-out';
+                } else {
+                    this.ctx.globalCompositeOperation = 'source-over';
+                }
+                this.ctx.drawImage(tempCanvas, 0, 0);
+                
+                // Update remote user position
+                remoteUser.lastX = x;
+                remoteUser.lastY = y;
+            }
+
+            drawOnCanvas(data) {
+                // Ignore our own drawing events
+                if (data.userId === this.socket.id) {
+                    return;
+                }
+                
+                if (data.type === 'start') {
+                    // Initialize remote user
+                    this.remoteUsers.set(data.userId, {
+                        lastX: data.x,
+                        lastY: data.y
+                    });
+                    
+                } else if (data.type === 'draw') {
+                    // Draw remote user's line
+                    this.drawRemoteLine(
+                        data.userId,
+                        data.x,
+                        data.y,
+                        data.tool,
+                        data.color,
+                        data.lineWidth
+                    );
+                    
+                } else if (data.type === 'stop') {
+                    // Keep the user but mark as not drawing
+                    // (we'll clean up on user disconnect)
+                }
+            }
+
+            createCursorElement(user) {
+                if (document.getElementById(`cursor-${user.id}`)) return;
+
+                const cursor = document.createElement('div');
+                cursor.id = `cursor-${user.id}`;
+                cursor.className = 'cursor';
+                cursor.innerHTML = `
+                    <div class="cursor-dot"></div>
+                    <div class="cursor-label">${user.username}</div>
+                `;
+                document.body.appendChild(cursor);
+            }
+
+            updateUserCursor(data) {
+                const cursor = document.getElementById(`cursor-${data.id}`);
+                if (cursor) {
+                    cursor.style.left = data.x + 'px';
+                    cursor.style.top = data.y + 'px';
+                }
+            }
+
+            removeCursorElement(userId) {
+                const cursor = document.getElementById(`cursor-${userId}`);
+                if (cursor) {
+                    cursor.remove();
+                }
+            }
+
+            updateCursorLabel(userId, newUsername) {
+                const cursor = document.getElementById(`cursor-${userId}`);
+                if (cursor) {
+                    const label = cursor.querySelector('.cursor-label');
+                    if (label) {
+                        label.textContent = newUsername;
+                    }
+                }
+            }
+
+            updateUserCount() {
+                document.getElementById('user-count').textContent = this.users.size + 1;
+            }
+
+            toggleUsersDropdown() {
+                const usersList = document.getElementById('users-list');
+                usersList.classList.toggle('show');
+            }
+
+            updateUsersDropdown() {
+                const usersList = document.getElementById('users-list');
+                usersList.innerHTML = '';
+
+                // Add current user first
+                const currentUser = this.allUsers.get(this.socket.id);
+                if (currentUser) {
+                    const currentUserItem = this.createUserItem(currentUser, true);
+                    usersList.appendChild(currentUserItem);
+                }
+
+                // Add other users
+                for (const [userId, user] of this.allUsers.entries()) {
+                    if (userId !== this.socket.id) {
+                        const userItem = this.createUserItem(user, false);
+                        usersList.appendChild(userItem);
+                    }
+                }
+
+                // Show "No other users" if only current user
+                if (this.allUsers.size <= 1) {
+                    const emptyItem = document.createElement('div');
+                    emptyItem.className = 'user-item';
+                    emptyItem.innerHTML = '<span class="user-name" style="color: #999; font-style: italic;">No other users connected</span>';
+                    usersList.appendChild(emptyItem);
+                }
+            }
+
+            createUserItem(user, isCurrentUser = false) {
+                const userItem = document.createElement('div');
+                userItem.className = 'user-item' + (isCurrentUser ? ' current-user' : '');
+                
+                const colorDot = document.createElement('div');
+                colorDot.className = 'user-color-dot';
+                colorDot.style.backgroundColor = user.color || '#000000';
+                
+                const userName = document.createElement('span');
+                userName.className = 'user-name';
+                userName.textContent = user.username + (isCurrentUser ? ' (You)' : '');
+                
+                const userStatus = document.createElement('span');
+                userStatus.className = 'user-status';
+                userStatus.textContent = isCurrentUser ? 'Current User' : 'Online';
+                
+                userItem.appendChild(colorDot);
+                userItem.appendChild(userName);
+                userItem.appendChild(userStatus);
+                
+                return userItem;
+            }
+
+            updateAssignedColor(color) {
+                // Update the color palette to show assigned color
+                document.querySelectorAll('.color-btn').forEach(btn => {
+                    btn.classList.remove('active');
+                    if (btn.dataset.color === color) {
+                        btn.classList.add('active');
+                    }
+                });
+            }
+
+            updateClearVoteUI(voteData) {
+                const clearBtn = document.getElementById('clear-btn');
+                const voteIndicator = document.getElementById('vote-indicator');
+                const votePopup = document.getElementById('vote-popup');
+                const voteProgress = document.getElementById('vote-progress');
+                const voteDetails = document.getElementById('vote-details');
+                
+                if (voteData.votes > 0) {
+                    // Update button indicator
+                    voteIndicator.textContent = `${voteData.votes}/${voteData.total}`;
+                    voteIndicator.style.display = 'block';
+                    
+                    // Check if current user has voted
+                    this.hasVotedToClear = voteData.hasVoted && voteData.hasVoted.includes(this.socket.id);
+                    
+                    if (this.hasVotedToClear) {
+                        clearBtn.classList.add('voted');
+                        clearBtn.innerHTML = '✅ Voted to Clear <span class="vote-indicator" id="vote-indicator">' + voteIndicator.textContent + '</span>';
+                    } else {
+                        clearBtn.classList.remove('voted');
+                        clearBtn.innerHTML = '🗑️ Vote to Clear <span class="vote-indicator" id="vote-indicator">' + voteIndicator.textContent + '</span>';
+                    }
+                    
+                    // Show prominent popup
+                    voteProgress.textContent = `${voteData.votes}/${voteData.total}`;
+                    
+                    const needed = voteData.required - voteData.votes;
+                    if (needed > 0) {
+                        if (this.hasVotedToClear) {
+                            voteDetails.textContent = `You voted! Need ${needed} more vote${needed === 1 ? '' : 's'} to clear.`;
+                        } else {
+                            voteDetails.textContent = `${needed} more vote${needed === 1 ? '' : 's'} needed to clear the canvas!`;
+                        }
+                    } else {
+                        voteDetails.textContent = 'Clearing canvas now...';
+                    }
+                    
+                    // Show popup for 3 seconds
+                    votePopup.style.display = 'block';
+                    
+                    // Auto-hide popup after 3 seconds (but keep button indicator)
+                    setTimeout(() => {
+                        votePopup.style.display = 'none';
+                    }, 3000);
+                    
+                } else {
+                    this.resetVoteUI();
+                    votePopup.style.display = 'none';
+                }
+            }
+
+            resetVoteUI() {
+                const clearBtn = document.getElementById('clear-btn');
+                const voteIndicator = document.getElementById('vote-indicator');
+                const votePopup = document.getElementById('vote-popup');
+                
+                clearBtn.classList.remove('voted');
+                clearBtn.innerHTML = '🗑️ Clear All <span class="vote-indicator" id="vote-indicator"></span>';
+                voteIndicator.style.display = 'none';
+                votePopup.style.display = 'none';
+                this.hasVotedToClear = false;
+            }
+
+            showClearLoading() {
+                const clearBtn = document.getElementById('clear-btn');
+                clearBtn.innerHTML = '<span class="loading-spinner"></span> Clearing...';
+                clearBtn.disabled = true;
+            }
+
+            hideClearLoading() {
+                const clearBtn = document.getElementById('clear-btn');
+                clearBtn.disabled = false;
+                this.resetVoteUI();
+            }
+
+            updateCustomCursor() {
+                const size = this.currentTool === 'pencil' ? this.pencilSize : this.eraserSize;
+                this.customCursor.style.width = size + 'px';
+                this.customCursor.style.height = size + 'px';
+                
+                if (this.currentTool === 'pencil') {
+                    this.customCursor.style.borderColor = this.currentColor;
+                    this.customCursor.style.backgroundColor = 'rgba(255, 255, 255, 0.3)';
+                } else {
+                    this.customCursor.style.borderColor = '#ff0000';
+                    this.customCursor.style.backgroundColor = 'rgba(255, 0, 0, 0.1)';
+                }
+            }
+
+            updateCustomCursorPosition(e) {
+                this.customCursor.style.left = e.clientX + 'px';
+                this.customCursor.style.top = e.clientY + 'px';
+            }
+
+            clearCanvas() {
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+            }
+        }
+
+        // Initialize the whiteboard when page loads
+        window.addEventListener('load', () => {
+            const whiteboard = new SimpleWhiteboard();
+            // Initialize custom cursor
+            whiteboard.updateCustomCursor();
+        });
+    </script>
+</body>
+</html>
